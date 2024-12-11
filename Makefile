@@ -8,6 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = Little12SpringBoard Little12UIKit
 Little12SpringBoard_FILES = TweakSpring.xm
 Little12UIKit_FILES = TweakUI.xm
+Little12UIKit_WEAK_LIBRARIES = $(THEOS_LIBRARY_PATH)/libhooker.dylib
 
 ARCHS = arm64 arm64e
 

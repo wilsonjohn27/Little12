@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
+#include "libhooker.h"
 #define CGRectSetY(rect, y) CGRectMake(rect.origin.x, y, rect.size.width, rect.size.height)
 
 NSInteger statusBarStyle, keyboardSpacing;
@@ -17,6 +18,9 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 	orig.right = 0;
     orig.bottom = 0;
 	return orig;
+}
++(BOOL)showsGlobeAndDictationKeysExternally {
+    return NO;
 }
 %end
 %end
@@ -41,6 +45,10 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
     UIEdgeInsets orig = %orig;
     if (!(%c(BarmojiCollectionView) || %c(DockXServer)))
          orig.bottom = keyboardSpacing;
+    if (orientation == 4)  {
+        orig.left = 0;
+        orig.right = 0;
+    }
     return orig;
 }
 %end
@@ -48,6 +56,9 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 %hook UIKeyboardDockView
 - (CGRect)bounds {
     CGRect bounds = %orig;
+    if (!(%c(BarmojiCollectionView) || %c(DockXServer)))
+        bounds.size.height += (-0.5*keyboardSpacing) + 40;
+
     return bounds;
 }
 %end
@@ -88,15 +99,6 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 %end
 %end
 
-%group disableGesturesWhenKeyboard // iOS 13.4 and up
-%hook SBFluidSwitcherGestureManager
-- (void)grabberTongueBeganPulling:(id)arg1 withDistance:(double)arg2 andVelocity:(double)arg3 andGesture:(id)arg4  {
-    if (!disableGestures)
-        %orig;
-}
-%end
-%end
-
 %group UIKitiPadMultitasking
 %hook UITraitCollection
 +(UITraitCollection *)traitCollectionWithHorizontalSizeClass:(UIUserInterfaceSizeClass)arg1 {
@@ -107,40 +109,51 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 %end
 %end
 
-%group BoundsHack
-%hookf(int, sysctl, const int *name, u_int namelen, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
+%group disableGesturesWhenKeyboard // iOS 13.4 and up
+%hook SBFluidSwitcherGestureManager
+- (void)grabberTongueBeganPulling:(id)arg1 withDistance:(double)arg2 andVelocity:(double)arg3 andGesture:(id)arg4  {
+    if (!disableGestures)
+        %orig;
+}
+%end
+%end
+
+static int (*_orig_sysctl)(const int *name, u_int namelen, void *oldp, size_t *oldlenp, const void *newp, size_t newlen);
+static int _function_sysctl(const int *name, u_int namelen, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
 	if (namelen == 2 && name[0] == CTL_HW && name[1] == HW_MACHINE && oldp) {
-        int const ret = %orig;
+        int const ret = _orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
         const char *mechine1 = "iPhone12,1";
         strncpy((char*)oldp, mechine1, strlen(mechine1));
         return ret;
     } else {
-        return %orig;
+        return _orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
     }
 }
 
-%hookf(int, sysctlbyname, const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+static int (*_orig_sysctlbyname)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+static int _function_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
 	if (strcmp(name, "hw.machine") == 0) {
-        int ret = %orig;
-        const char *mechine1 = "iPhone12,1";
+        int ret = _orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
         if (oldp) {
+            const char *mechine1 = "iPhone12,1";
             strcpy((char *)oldp, mechine1);
+            *oldlenp = sizeof(mechine1);
         }
-        *oldlenp = sizeof(mechine1);
         return ret;
     } else {
-        return %orig;
+        return _orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
     }
 }
 
-%hookf(int, uname, struct utsname *value) {
-	int const ret = %orig;
+static int (*_orig_uname)(struct utsname *value);
+static int _function_uname(struct utsname *value) {
+	int const ret = _orig_uname(value);
 	NSString *utsmachine = @"iPhone12,1";
     const char *utsnameCh = utsmachine.UTF8String; 
     strcpy(value->machine, utsnameCh);
     return ret;
 }
-%end
+
 
 %group CompatabilityMode
 %hook UIScreen
@@ -152,15 +165,35 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 %end
 %end 
 
+@interface UIWindow (little12)
+@property (assign,nonatomic) UIEdgeInsets little12safeAreaSuperview;
+@end 
+
 %hook UIWindow
+%property (assign,nonatomic) UIEdgeInsets little12safeAreaSuperview;
+-(UIEdgeInsets)_safeAreaInsetsInSuperview:(id)arg1 {
+    UIEdgeInsets orig = %orig;
+    self.little12safeAreaSuperview = orig;
+    return %orig;
+}
 - (UIEdgeInsets)safeAreaInsets {
     UIEdgeInsets orig = %orig;
+    if (orig.top == 38 && (statusBarStyle == 2 || self.little12safeAreaSuperview.top == 0))
+        orig.top = 0;
+
     orig.bottom = wantsbottomInset ? 20 : 0;
+    orig.left = 0;
+    orig.right = 0;
     return orig;
 }
 %end
 
 %group InstagramFix
+%hook IGStoryStickerContainerView
+- (void)setFrame:(CGRect)frame {
+   %orig(CGRectMake(frame.origin.x,frame.origin.y,frame.size.width,frame.size.height - 40));
+}
+%end
 %end
 
 %group bottominsetfix // AWE = TikTok, TFN = Twitter, YT = Youtube
@@ -179,6 +212,12 @@ BOOL wantsDeviceSpoofing, wantsCompatabilityMode;
 %hook TFNNavigationBarOverlayView  
 - (void)setFrame:(CGRect)frame {
     %orig(CGRectMake(frame.origin.x,frame.origin.y,frame.size.width,frame.size.height + 6));
+}
+%end
+
+%hook T1FleetLineView
+- (void)setFrame:(CGRect)frame {
+    %orig(CGRectSetY(frame, frame.origin.y - 30));
 }
 %end
 
@@ -252,7 +291,7 @@ void loadPrefs() {
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)loadPrefs, CFSTR("com.ryannair05.little12prefs/prefsupdated"), NULL, CFNotificationSuspensionBehaviorCoalesce);
         loadPrefs();
-
+        
         if (enabled) {
 
             bool const isApp = [[[[NSProcessInfo processInfo] arguments] objectAtIndex:0] containsString:@"/Application"];
@@ -261,28 +300,28 @@ void loadPrefs() {
 
             if (isApp) {
 
-                NSString* const bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-
-                if ([bundleIdentifier containsString:@"com.apple"]) {
-                    if ([bundleIdentifier isEqualToString:@"com.apple.camera"]) {
+                CFStringRef const bundleIdentifier =  CFBundleGetIdentifier(CFBundleGetMainBundle());
+                    
+                if (CFStringHasPrefix(bundleIdentifier, CFSTR("com.apple"))) {
+                    if (CFEqual(bundleIdentifier, CFSTR("com.apple.camera"))) {
                         if (wants11Camera) %init(iPhone11Cam);
                         else if (wantsbottomInset) %init(CameraFix);
                     }
                 }
                 else if (wantsbottomInset || statusBarStyle > 1) {
                     
-                    if ([bundleIdentifier isEqualToString:@"com.google.ios.youtube"]) {
+                    if (CFEqual(bundleIdentifier, CFSTR("com.google.ios.youtube"))) {
                         if (wantsbottomInset || statusBarStyle == 2)
                             wantsCompatabilityMode = YES;
                         else
                             %init(YoutubeStatusBarXSpacingFix);
                     }
-                    else if ([bundleIdentifier isEqualToString:@"com.burbn.instagram"]) {
+                    else if (CFEqual(bundleIdentifier, CFSTR("com.burbn.instagram"))) {
                         wantsCompatabilityMode = NO;
                         wantsDeviceSpoofing = statusBarStyle == 2;
                         %init(InstagramFix)
                     }
-                    else if ([bundleIdentifier isEqualToString:@"com.zhiliaoapp.musically"]) {
+                    else if (CFEqual(bundleIdentifier, CFSTR("com.zhiliaoapp.musically"))) {
                         wantsCompatabilityMode = NO;
                         wantsDeviceSpoofing = YES;
                         statusBarStyle = 2;
@@ -295,11 +334,27 @@ void loadPrefs() {
                     }
 
                     if (wantsCompatabilityMode) %init(CompatabilityMode);
-                    if (wantsDeviceSpoofing) %init(BoundsHack);
+                    if (wantsDeviceSpoofing) {
+
+                        if (access("/usr/lib/libhooker.dylib", F_OK) == 0) {
+                            const struct LHFunctionHook hook[3] = {
+                                {(void *)sysctl, (void *)&_function_sysctl, (void **)&_orig_sysctl},
+                                {(void *)sysctlbyname, (void *)&_function_sysctlbyname, (void **)&_orig_sysctlbyname},
+                                {(void *)uname, (void *)&_function_uname, (void **)&_orig_uname}
+                            };
+
+                            LHHookFunctions(hook, 3);
+                        }
+                        else {
+                            MSHookFunction((void *)sysctl, (void *)&_function_sysctl, (void **)&_orig_sysctl);
+                            MSHookFunction((void *)sysctlbyname, (void *)&_function_sysctlbyname, (void **)&_orig_sysctlbyname);
+                            MSHookFunction((void *)uname, (void *)&_function_uname, (void **)&_orig_uname);
+                        }
+                    }
                 }
             }
 
-            if (![[NSFileManager defaultManager] fileExistsAtPath:@"/Library/MobileSubstrate/DynamicLibraries/KeyboardPlus.dylib"]) {
+            if (access("/Library/MobileSubstrate/DynamicLibraries/KeyboardPlus.dylib", F_OK) != 0) {
 
                 if (wantsKeyboardDock) %init(KeyboardDock);
                 else %init(ForceDefaultKeyboard);

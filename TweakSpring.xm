@@ -5,6 +5,7 @@ short statusBarStyle, screenRoundness, appswitcherRoundness, iPadDockNumIcons, n
 BOOL enabled, wantsHomeBarSB, wantsHomeBarLS, wantsReduceRows, wantsRoundedCorners, wantsXButtons;
 BOOL wantsCCGrabber, wantsProudLock, wantsHideSBCC,wantsLSShortcuts, wantsBatteryPercent, wantsiPadDock;
 BOOL wantsiPadMultitasking, wantsRecentApps, wantsiPadAppSwitcher, wantsDockInApps, wantsDockInSwitcher;
+BOOL noBreadCrumbs;
 
 %hook BSPlatform
 - (NSInteger)homeButtonType {
@@ -112,6 +113,12 @@ BOOL wantsiPadMultitasking, wantsRecentApps, wantsiPadAppSwitcher, wantsDockInAp
 %end
 
 %group StatusBarX
+%hook _UIStatusBarVisualProvider_iOS
++ (Class)class {
+    return %c(_UIStatusBarVisualProvider_Split54);
+}
+%end
+
 %hook SBIconListGridLayoutConfiguration
 - (UIEdgeInsets)portraitLayoutInsets { 
     UIEdgeInsets const x = %orig;
@@ -207,6 +214,12 @@ BOOL wantsiPadMultitasking, wantsRecentApps, wantsiPadAppSwitcher, wantsDockInAp
 %end
 %end
 
+%hook SBFluidSwitcherViewController
+- (double)displayCornerRadius {
+	return appswitcherRoundness;
+}
+%end
+
 %group iPadAppSwitcher
 %hook SBAppSwitcherSettings
 -(void)setSwitcherStyle:(NSInteger)arg1 {
@@ -227,9 +240,9 @@ BOOL wantsiPadMultitasking, wantsRecentApps, wantsiPadAppSwitcher, wantsDockInAp
 - (void)_layoutControlCenterGrabberAndGlyph  {
     %orig;
     if (statusBarStyle == 2) {
-        self.controlCenterGrabberEffectContainerView.frame = CGRectMake(self.frame.size.width - 73,36,46,2.5);
+        self.controlCenterGrabberEffectContainerView.frame = CGRectMake(self.frame.size.width - 73,40,46,2.5);
         self.controlCenterGrabberView.frame = CGRectMake(0,0,46,2.5);
-        self.controlCenterGlyphView.frame = CGRectMake(315,45,16.6,19.3);
+        self.controlCenterGlyphView.frame = CGRectMake(315,50,16.6,19.3);
     } else {
         self.controlCenterGrabberEffectContainerView.frame = CGRectMake(self.frame.size.width - 75.5,24,60.5,2.5);
         self.controlCenterGrabberView.frame = CGRectMake(0,0,60.5,2.5);
@@ -364,9 +377,7 @@ CGFloat offset = 0;
 	if (screenWidth <= 320) {
 		offset = 20;
 	} else if (screenWidth <= 375) {
-		offset = 35;
-	} else if (screenWidth <= 414) {
-		offset = 28;
+		offset = 25;
 	}
 
     return %orig;
@@ -401,6 +412,13 @@ CGFloat offset = 0;
 }
 %end
 
+
+%hook SBUIProudLockIconView
+- (void)setFrame:(CGRect)frame {
+    %orig(CGRectSetY(frame, frame.origin.y + offset * 3));
+}
+%end
+
 %hook CSCombinedListViewController
 - (UIEdgeInsets)_listViewDefaultContentInsets {
     UIEdgeInsets orig = %orig;
@@ -413,7 +431,7 @@ CGFloat offset = 0;
 %hook SBUIBiometricResource
 - (id)init {
 	id r = %orig;
-	
+
 	MSHookIvar<BOOL>(r, "_hasMesaHardware") = NO;
 	MSHookIvar<BOOL>(r, "_hasPearlHardware") = YES;
 	
@@ -441,9 +459,19 @@ CGFloat offset = 0;
 %end
 
 %group noDockInAppSwitcher
+%hook SBDeckSwitcherModifier
+-(BOOL)shouldConfigureInAppDockHiddenAssertion {
+    return YES;
+}
+%end
 %end
 
 %group noDockInApps
+%hook SBFloatingDockBehaviorAssertion
+-(BOOL)gesturePossible {
+    return NO;
+}
+%end
 %end
 
 %group iPadMultitasking
@@ -465,7 +493,13 @@ CGFloat offset = 0;
 	return YES;
 }
 %end
-%end 
+
+%hook SBApplicationInfo
+-(BOOL)supportsMultiwindow {
+    return YES;
+}
+%end
+%end
 
 // Preferences.
 void loadPrefs() {

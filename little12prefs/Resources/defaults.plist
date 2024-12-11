@@ -31,7 +31,7 @@
 	<key>dockInSwitcher</key>
 	<false/>
 	<key>noGesturesForKeyboard</key>
-	<true/>
+	<false/>
 	<key>iPadDock</key>
 	<true/>
 	<key>iPadMultitasking</key>
@@ -49,7 +49,7 @@
 	<key>HideSBCC</key>
 	<false/>
 	<key>ProudLock</key>
-	<false/>
+	<true/>
 	<key>xButtons</key>
 	<false/>
 	<key>roundedCorners</key>
